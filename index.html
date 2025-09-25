@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comments Manager</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Comments Manager</h1>
+
+        <div id="status"></div>
+
+        <div class="form-section">
+            <h2>Add New Comment</h2>
+            <form id="addCommentForm">
+                <div class="form-group">
+                    <label for="taskId">Task ID:</label>
+                    <input type="number" id="taskId" required>
+                </div>
+                <div class="form-group">
+                    <label for="content">Content:</label>
+                    <textarea id="content" required maxlength="200" placeholder="Enter your comment (max 200 characters)"></textarea>
+                </div>
+                <button type="submit" class="btn">Add Comment</button>
+            </form>
+        </div>
+
+        <div class="form-section">
+            <h2>Get Single Comment</h2>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="commentId">Comment ID:</label>
+                    <input type="number" id="commentId" placeholder="Enter comment ID">
+                </div>
+                <button type="button" class="btn btn-secondary" onclick="getComment()">Get Comment</button>
+            </div>
+        </div>
+
+        <div class="comments-section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>All Comments</h2>
+                <button class="btn" onclick="loadAllComments()">Refresh</button>
+            </div>
+            <div id="commentsList">
+                <div class="loading">Loading comments...</div>
+            </div>vs
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:1234/api/comments';
+        let editingCommentId = null;
+
+        function showStatus(message, type = 'success') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = `<div class="status ${type}">${message}</div>`;
+            setTimeout(() => statusDiv.innerHTML = '', 5000);
+        }
+
+        async function getComment() {
+            const commentId = document.getElementById('commentId').value;
+            if (!commentId) {
+                showStatus('Please enter a comment ID', 'error');
+                return;
+            }
+            try {
+                const response = await fetch(`${API_BASE}/${commentId}`);
+                if (response.ok) {
+                    const comment = await response.json();
+                    displaySingleComment(comment);
+                } else if (response.status === 404) {
+                    showStatus('Comment not found', 'error');
+                } else {
+                    throw new Error('Failed to get comment');
+                }
+            } catch (error) {
+                showStatus('Error getting comment: ' + error.message, 'error');
+            }
+        }
+
+        function displaySingleComment(comment) {
+            const commentsList = document.getElementById('commentsList');
+            commentsList.innerHTML = `
+                <div class="comment-card" style="border: 2px solid #667eea;">
+                    <div class="comment-header">
+                        <span class="comment-id">ID: ${comment.id}</span>
+                        <span class="task-id">Task: ${comment.task_id}</span>
+                    </div>
+                    <div class="comment-content">${comment.content}</div>
+                    <div class="comment-actions">
+                        <button class="btn btn-secondary" onclick="editComment(${comment.id}, ${comment.task_id}, '${comment.content.replace(/'/g, "\\'")}')">Edit</button>
+                        <button class="btn btn-danger" onclick="deleteComment(${comment.id})">Delete</button>
+                    </div>
+                </div>
+            `;
+            showStatus('Comment retrieved successfully!');
+        }
+
+        async function loadAllComments() {
+            const commentsList = document.getElementById('commentsList');
+            commentsList.innerHTML = '<div class="loading">Loading comments...</div>';
+            try {
+                const response = await fetch(API_BASE + '/');
+                if (response.ok) {
+                    const comments = await response.json();
+                    displayComments(comments);
+                } else {
+                    throw new Error('Failed to load comments');
+                }
+            } catch (error) {
+                commentsList.innerHTML = '<div class="status error">Error loading comments: ' + error.message + '</div>';
+            }
+        }
+
+        function displayComments(comments) {
+            const commentsList = document.getElementById('commentsList');
+            if (comments.length === 0) {
+                commentsList.innerHTML = '<div class="no-comments">No comments found</div>';
+                return;
+            }
+            commentsList.innerHTML = comments.map(comment => `
+                <div class="comment-card">
+                    <div class="comment-header">
+                        <span class="comment-id">ID: ${comment.id}</span>
+                        <span class="task-id">Task: ${comment.task_id}</span>
+                    </div>
+                    <div class="comment-content">${comment.content}</div>
+                    <div class="comment-actions">
+                        <button class="btn btn-secondary" onclick="editComment(${comment.id}, ${comment.task_id}, '${comment.content.replace(/'/g, "\\'")}')">Edit</button>
+                        <button class="btn btn-danger" onclick="deleteComment(${comment.id})">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function editComment(id, taskId, content) {
+            document.getElementById('taskId').value = taskId;
+            document.getElementById('content').value = content;
+            const form = document.getElementById('addCommentForm');
+            const submitBtn = form.querySelector('button[type="submit"]');
+            if (editingCommentId === null) {
+                const cancelBtn = document.createElement('button');
+                cancelBtn.type = 'button';
+                cancelBtn.className = 'btn btn-secondary';
+                cancelBtn.textContent = 'Cancel';
+                cancelBtn.onclick = cancelEdit;
+                submitBtn.parentNode.insertBefore(cancelBtn, submitBtn.nextSibling);
+            }
+            submitBtn.textContent = 'Update Comment';
+            editingCommentId = id;
+            form.scrollIntoView({ behavior: 'smooth' });
+            showStatus('Editing mode activated. Make changes and click Update Comment.');
+        }
+
+        function cancelEdit() {
+            editingCommentId = null;
+            document.getElementById('addCommentForm').reset();
+            const form = document.getElementById('addCommentForm');
+            const submitBtn = form.querySelector('button[type="submit"]');
+            const cancelBtn = form.querySelector('button.btn-secondary');
+            submitBtn.textContent = 'Add Comment';
+            if (cancelBtn) cancelBtn.remove();
+            showStatus('Edit cancelled');
+        }
+
+        // ✅ Only one submit handler (handles add + update)
+        document.getElementById('addCommentForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const taskId = document.getElementById('taskId').value;
+            const content = document.getElementById('content').value;
+            try {
+                let response;
+                if (editingCommentId) {
+                    response = await fetch(`${API_BASE}/${editingCommentId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ task_id: parseInt(taskId), content })
+                    });
+                    if (response.ok) {
+                        showStatus('Comment updated successfully!');
+                        cancelEdit();
+                    } else {
+                        throw new Error('Failed to update comment');
+                    }
+                } else {
+                    response = await fetch(API_BASE + '/', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ task_id: parseInt(taskId), content })
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        showStatus(`Comment added successfully! (ID: ${data.id})`);
+                        document.getElementById('addCommentForm').reset();
+                    } else {
+                        throw new Error('Failed to add comment');
+                    }
+                }
+                loadAllComments();
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        });
+
+        async function deleteComment(id) {
+            if (!confirm('Are you sure you want to delete this comment?')) return;
+            try {
+                const response = await fetch(`${API_BASE}/${id}`, { method: 'DELETE' });
+                if (response.ok) {
+                    showStatus('Comment deleted successfully!');
+                    loadAllComments();
+                } else {
+                    throw new Error('Failed to delete comment');
+                }
+            } catch (error) {
+                showStatus('Error deleting comment: ' + error.message, 'error');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', loadAllComments);
+    </script>
+
+</body>
+</html>
